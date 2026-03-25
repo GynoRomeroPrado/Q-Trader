@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <meta name="description" content="Real-time trading bot monitoring dashboard">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-screen" class="login-screen">
+        <div class="login-card">
+            <div class="login-logo">⚡</div>
+            <h1>Trading Bot</h1>
+            <p>Ingresa tu API key para continuar</p>
+            <input type="password" id="api-key-input" placeholder="API Key" autocomplete="off">
+            <button id="login-btn" onclick="handleLogin()">Conectar</button>
+            <p id="login-error" class="error-text"></p>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="dashboard hidden">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <span class="logo">⚡</span>
+                <h1>Trading Bot</h1>
+                <span id="bot-status-badge" class="badge badge-offline">Offline</span>
+            </div>
+            <div class="header-right">
+                <span id="ws-status" class="ws-indicator">⬤ Desconectado</span>
+                <button class="btn-icon" onclick="location.reload()">↻</button>
+            </div>
+        </header>
+
+        <!-- Metric Cards -->
+        <section class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">PnL Total</div>
+                <div id="total-pnl" class="metric-value pnl-neutral">$0.00</div>
+                <div class="metric-sub">Acumulado</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">PnL Hoy</div>
+                <div id="today-pnl" class="metric-value pnl-neutral">$0.00</div>
+                <div class="metric-sub" id="today-trades-count">0 trades</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Balance</div>
+                <div id="current-balance" class="metric-value">$0.00</div>
+                <div class="metric-sub">USDT disponible</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Trades Totales</div>
+                <div id="total-trades" class="metric-value">0</div>
+                <div class="metric-sub">Desde el inicio</div>
+            </div>
+        </section>
+
+        <!-- Chart Section -->
+        <section class="chart-section">
+            <div class="section-header">
+                <h2>Equity Curve</h2>
+            </div>
+            <div id="equity-chart" class="chart-container"></div>
+        </section>
+
+        <!-- Recent Trades Table -->
+        <section class="trades-section">
+            <div class="section-header">
+                <h2>Trades Recientes</h2>
+            </div>
+            <div class="table-wrapper">
+                <table id="trades-table">
+                    <thead>
+                        <tr>
+                            <th>Hora</th>
+                            <th>Par</th>
+                            <th>Lado</th>
+                            <th>Precio</th>
+                            <th>Cantidad</th>
+                            <th>PnL</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-body">
+                        <tr><td colspan="6" class="empty-state">Sin trades aún</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <span>Trading Bot v1.0 — Última actualización: <span id="last-update">—</span></span>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

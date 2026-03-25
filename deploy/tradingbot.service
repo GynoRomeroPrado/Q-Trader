@@ -1,0 +1,38 @@
+[Unit]
+Description=Trading Bot — Automated Crypto Trading Engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/tradingbot
+Environment="PATH=/opt/tradingbot/.venv/bin:/usr/local/bin:/usr/bin"
+ExecStart=/opt/tradingbot/.venv/bin/python /opt/tradingbot/run_bot.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/tradingbot/data
+ReadWritePaths=/opt/tradingbot/data/bot.log
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=80%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tradingbot
+
+[Install]
+WantedBy=multi-user.target

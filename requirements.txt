@@ -1,0 +1,22 @@
+# === Trading Engine ===
+ccxt>=4.4.0
+pandas>=2.2
+ta>=0.11.0
+
+# === Web Server & API ===
+fastapi>=0.115
+uvicorn[standard]>=0.34
+websockets>=13.0
+pyjwt[crypto]>=2.9
+
+# === Databases ===
+duckdb>=1.2
+aiosqlite>=0.20
+
+# === Security & Config ===
+python-dotenv>=1.0
+cryptography>=43.0
+
+# === Optional: C backend for indicators ===
+# TA-Lib (requires C library installed separately)
+# pip install TA-Lib after installing the C library
