@@ -28,15 +28,10 @@ class RiskManager:
         # 1. Check cooldown
         elapsed = time.time() - self._last_trade_time
         if elapsed < settings.trading.cooldown_seconds:
-            remaining = settings.trading.cooldown_seconds - elapsed
-            logger.info(f"⏳ Cooldown active: {remaining:.0f}s remaining")
             return False
 
         # 2. Check max open trades
         if self._open_trades >= settings.trading.max_open_trades:
-            logger.warning(
-                f"🚫 Max open trades reached ({settings.trading.max_open_trades})"
-            )
             return False
 
         # 3. Check minimum balance for BUY
@@ -49,23 +44,30 @@ class RiskManager:
 
         return True
 
-    def calculate_position_size(self, balance: float,
-                                price: float) -> float:
-        """Calculate order size based on max position percentage.
-
-        Example: balance=1000 USDT, max_position_pct=0.02, price=50000
-                → 1000 * 0.02 = 20 USDT → 20/50000 = 0.0004 BTC
-        """
-        capital_at_risk = balance * settings.trading.max_position_pct
-        size = capital_at_risk / price
+    def calculate_position_size(self, balance: float, price: float, atr_proxy: float = 0.001) -> float:
+        """Position Sizing dinámico (Fixed Fractional Inverso a Volatilidad)."""
+        base_risk_pct = settings.trading.max_position_pct
+        
+        # Evitar división por cero si el spread es anormalmente estrecho
+        safe_atr = max(atr_proxy, 0.00001)
+        
+        # Escalar numérico: Baseline crypto ATR_proxy típico es ~0.001 (10 bps)
+        vol_scaler = 0.001 / safe_atr 
+        
+        adjusted_risk = base_risk_pct * vol_scaler
+        
+        # Hard caps de seguridad para el Mini PC (0.5% min, 5% max)
+        adjusted_risk = min(max(adjusted_risk, 0.005), 0.05)
+        
+        usd_size = balance * adjusted_risk
+        
         logger.info(
-            f"📐 Position size: {size:.8f} "
-            f"(${capital_at_risk:.2f} at {settings.trading.max_position_pct*100:.1f}%)"
+            f"📐 Position Size: {usd_size/price:.8f} "
+            f"(${usd_size:.2f} @ {adjusted_risk*100:.2f}% risk | ATR Proxy: {safe_atr:.5f})"
         )
-        return size
+        return usd_size / price
 
-    def calculate_stop_loss(self, entry_price: float,
-                            side: str = "buy") -> float:
+    def calculate_stop_loss(self, entry_price: float, side: str = "buy") -> float:
         """Calculate stop-loss price."""
         if side == "buy":
             sl = entry_price * (1 - settings.trading.stop_loss_pct)

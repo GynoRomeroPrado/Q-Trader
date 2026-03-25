@@ -56,19 +56,19 @@ class TestRiskManager:
 
     def test_validate_passes_normal(self, risk_manager):
         """Validate should pass with no constraints hit."""
-        result = asyncio.run(risk_manager.validate(Signal.BUY))
+        result = asyncio.run(risk_manager.validate(Signal.BUY, "BTC/USDT"))
         assert result is True
 
     def test_cooldown_rejects(self, risk_manager):
         """Validate should reject during cooldown."""
         risk_manager._last_trade_time = time.time()  # Just traded
-        result = asyncio.run(risk_manager.validate(Signal.BUY))
+        result = asyncio.run(risk_manager.validate(Signal.BUY, "BTC/USDT"))
         assert result is False
 
     def test_max_trades_rejects(self, risk_manager):
         """Validate should reject when max open trades reached."""
         risk_manager._open_trades = 999
-        result = asyncio.run(risk_manager.validate(Signal.BUY))
+        result = asyncio.run(risk_manager.validate(Signal.BUY, "BTC/USDT"))
         assert result is False
 
     def test_low_balance_rejects(self, risk_manager, mock_exchange):
@@ -76,7 +76,7 @@ class TestRiskManager:
         mock_exchange.fetch_balance = AsyncMock(return_value={
             "free": 1.0, "used": 0.0, "total": 1.0,
         })
-        result = asyncio.run(risk_manager.validate(Signal.BUY))
+        result = asyncio.run(risk_manager.validate(Signal.BUY, "BTC/USDT"))
         assert result is False
 
     def test_trade_tracking(self, risk_manager):

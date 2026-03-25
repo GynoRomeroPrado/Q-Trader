@@ -1,4 +1,4 @@
-"""Trade executor — main async trading loop."""
+"""Trade executor — HFT Maker-only Microstructure execution."""
 
 from __future__ import annotations
 
@@ -6,23 +6,23 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-import pandas as pd
-
 from config.settings import settings
 from core.exchange_client import ExchangeClient
+from core.order_manager import OrderManager
 from core.risk_manager import RiskManager
-from core.strategy_base import Signal, Strategy
+from core.sentiment_oracle import SentimentOracle
+from core.strategy_base import OrderBookStrategy, Signal
 
 logger = logging.getLogger(__name__)
 
 
 class TradeExecutor:
-    """Runs the main trading loop: data → signal → validation → execution."""
+    """Runs the HFT micro-structure order book loop."""
 
     def __init__(
         self,
         exchange: ExchangeClient,
-        strategy: Strategy,
+        strategy: OrderBookStrategy,
         risk_manager: RiskManager,
         db=None,
         ws_manager=None,
@@ -33,114 +33,134 @@ class TradeExecutor:
         self._db = db
         self._ws = ws_manager
         self._running = False
+        self.symbol = settings.trading.symbol
+        self.order_manager = OrderManager(exchange, self.symbol)
+        
+        # Cerebro 3: Oráculo de Sentimiento (Circuit Breaker)
+        api_key = getattr(settings.trading, "cryptopanic_key", "") 
+        self.oracle = SentimentOracle(api_key=api_key, polling_interval=60)
+        
+        self._cached_quote_balance = 0.0
+        self._cached_base_balance = 0.0
 
     async def start(self) -> None:
         """Start the trading loop."""
         self._running = True
-        symbol = settings.trading.symbol
-        timeframe = settings.trading.timeframe
         logger.info(
-            f"🚀 Trading engine started: {symbol} | {timeframe} | "
+            f"🚀 Trading engine started (HFT Maker-Only): {self.symbol} | "
             f"Strategy: {self._strategy.name}"
         )
 
-        # Initial historical candles for indicators
-        df = await self._exchange.fetch_ohlcv(symbol, timeframe, limit=100)
-        logger.info(f"📊 Loaded {len(df)} historical candles")
+        await self.order_manager.start_watcher()
+        await self.oracle.start()
+        await self._update_balances()
 
         while self._running:
             try:
-                # Stream new candles via WebSocket
-                new_candles = await self._exchange.watch_ohlcv(symbol, timeframe)
-
-                # Update DataFrame with new data
-                new_df = pd.DataFrame(
-                    new_candles,
-                    columns=["timestamp", "open", "high", "low", "close", "volume"],
+                # 1. Espera pasiva de actualizaciones del L2 (Zero CPU idle cost)
+                ob = await self._exchange._ws_call_with_retry(
+                    lambda: self._exchange._exchange.watch_order_book(self.symbol, limit=20),
+                    f"watch_order_book({self.symbol})"
                 )
-                new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], unit="ms")
+                
+                # 2. Análisis ultra-rápido determinístico O(1)
+                signal, atr_proxy = self._strategy.process_orderbook(ob)
+                
+                if signal != Signal.HOLD:
+                    # 1. EVALUACIÓN PÁNICO MACRO (Cerebro 3: Circuit Breaker)
+                    if not await self.oracle.is_market_safe():
+                        logger.warning(
+                            f"🛑 SEÑAL OBI DESCARTADA: Circuit Breaker activo. "
+                            f"Motivo: {self.oracle.panic_reason}"
+                        )
+                        # Cancelación forzosa si el Oráculo detecta pánico estando adentro
+                        if self.order_manager._active_order_id:
+                            await self.order_manager._safe_cancel(self.order_manager._active_order_id)
+                        await asyncio.sleep(0.01)
+                        continue
 
-                # Merge: keep last 200 candles
-                df = pd.concat([df, new_df]).drop_duplicates(
-                    subset=["timestamp"], keep="last"
-                ).tail(200).reset_index(drop=True)
+                    # 2. VALIDACIÓN DE RIESGO DE CARTERA
+                    if await self._risk.validate(signal, self.symbol):
+                        best_bid = ob["bids"][0][0]
+                        best_ask = ob["asks"][0][0]
+                        
+                        await self._execute_maker_trade(signal, best_bid, best_ask, atr_proxy)
 
-                # Generate signal
-                signal = await self._strategy.generate_signal(df.copy())
-
-                if signal == Signal.HOLD:
-                    continue
-
-                # Validate against risk rules
-                if not await self._risk.validate(signal, symbol):
-                    logger.info(f"⛔ Signal {signal.value} rejected by risk manager")
-                    continue
-
-                # Execute trade
-                await self._execute_trade(signal, symbol, df)
-
+                # 3. THROTTLE DE SEGURIDAD (Crítico para CPU/RAM de Mini PC)
+                # Ceder 10ms explícitos al event loop permite I/O a la red de FastAPI
+                await asyncio.sleep(0.01)
+                
             except asyncio.CancelledError:
-                logger.info("Trading loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"❌ Trading loop error: {e}", exc_info=True)
-                await asyncio.sleep(5)  # Brief pause before retry
+                await asyncio.sleep(1)
 
+        await self.oracle.stop()
+        await self.order_manager.stop_watcher()
         logger.info("🛑 Trading engine stopped")
 
-    async def _execute_trade(
-        self, signal: Signal, symbol: str, df: pd.DataFrame
+    async def _update_balances(self) -> None:
+        quote = self.symbol.split("/")[1]
+        base = self.symbol.split("/")[0]
+        bal_quote = await self._exchange.fetch_balance(quote)
+        bal_base = await self._exchange.fetch_balance(base)
+        self._cached_quote_balance = bal_quote["free"]
+        self._cached_base_balance = bal_base["free"]
+
+    async def _execute_maker_trade(
+        self, signal: Signal, best_bid: float, best_ask: float, atr_proxy: float
     ) -> None:
-        """Execute a single trade based on the signal."""
-        quote = symbol.split("/")[1]  # e.g. "USDT"
-        base = symbol.split("/")[0]   # e.g. "BTC"
+        """Delegates Pegging execution to OrderManager without blocking the Order Book entirely."""
+        await self._update_balances()
+        
+        price = best_bid if signal == Signal.BUY else best_ask
+        balance = self._cached_quote_balance if signal == Signal.BUY else self._cached_base_balance
+        
+        if signal == Signal.SELL and balance <= 0:
+            logger.debug("Omitiendo SELL: Sin balance base suficiente")
+            return
 
-        side = "buy" if signal == Signal.BUY else "sell"
-        current_price = float(df.iloc[-1]["close"])
+        target_amount = self._risk.calculate_position_size(
+            balance=self._cached_quote_balance,  # Usar USD total para scaling
+            price=price,
+            atr_proxy=atr_proxy
+        )
+        
+        if signal == Signal.SELL:
+            target_amount = min(target_amount, balance)
 
-        if side == "buy":
-            balance = await self._exchange.fetch_balance(quote)
-            amount = self._risk.calculate_position_size(
-                balance["free"], current_price
-            )
-        else:
-            balance = await self._exchange.fetch_balance(base)
-            amount = balance["free"]
-            if amount <= 0:
-                logger.warning(f"No {base} to sell")
-                return
+        # Delegamos ejecución. Bloquea iteración actual pero es intencional:
+        # no queremos acumular múltiples pegs si ya estamos cazando el spread.
+        result = await self.order_manager.execute_maker_pegging(signal, target_amount)
+        
+        if not result or result["status"] == "failed":
+            logger.info("❌ Ejecución Pegging abortada/rechazada")
+            return
 
-        # Place order
-        order = await self._exchange.create_market_order(symbol, side, amount)
+        filled = result["status"] in ["filled", "partial"]
+        filled_amount = result["filled"]
+        
+        if filled:
+            if signal == Signal.BUY:
+                self._risk.record_trade_opened()
+            else:
+                self._risk.record_trade_closed()
 
-        # Record in risk manager
-        if side == "buy":
-            self._risk.record_trade_opened()
-        else:
-            self._risk.record_trade_closed()
+            trade_data = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "symbol": self.symbol,
+                "side": signal.value.lower(),
+                "price": price,  # Aproximación visual
+                "amount": filled_amount,
+                "order_id": self.order_manager._active_order_id or "",
+                "pnl": 0.0,
+            }
 
-        # Log trade
-        trade_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "symbol": symbol,
-            "side": side,
-            "price": order.get("average", current_price),
-            "amount": amount,
-            "order_id": order.get("id", ""),
-            "pnl": 0.0,  # PnL calculated on close
-        }
-
-        if self._db:
-            await self._db.log_trade(trade_data)
-
-        if self._ws:
-            await self._ws.broadcast({
-                "type": "trade",
-                "data": trade_data,
-            })
-
-        logger.info(f"✅ Trade executed: {trade_data}")
+            if self._db:
+                await self._db.log_trade(trade_data)
+            if self._ws:
+                await self._ws.broadcast({"type": "trade", "data": trade_data})
 
     def stop(self) -> None:
-        """Signal the trading loop to stop."""
         self._running = False

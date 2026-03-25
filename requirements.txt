@@ -13,9 +13,11 @@ pyjwt[crypto]>=2.9
 duckdb>=1.2
 aiosqlite>=0.20
 
-# === Security & Config ===
+# === Security, Config & NLP ===
 python-dotenv>=1.0
 cryptography>=43.0
+vaderSentiment>=3.3.2
+aiohttp>=3.9.5
 
 # === Optional: C backend for indicators ===
 # TA-Lib (requires C library installed separately)

@@ -25,7 +25,8 @@ from core.risk_manager import RiskManager
 from core.trade_executor import TradeExecutor
 from services.api_server import app, set_database, ws_manager
 from services.db import Database
-from strategies.ema_crossover import EMACrossover
+from strategies.ema_crossover import EMACrossover  # (Deprecated for HFT)
+from core.strategy_base import OrderBookStrategy
 
 
 def setup_logging() -> None:
@@ -86,7 +87,7 @@ async def main() -> None:
     await db.update_status("running")
 
     exchange = ExchangeClient()
-    strategy = EMACrossover(fast=9, slow=21)
+    strategy = OrderBookStrategy(depth=10, imbalance_threshold=0.65)
     risk_manager = RiskManager(exchange)
 
     executor = TradeExecutor(
