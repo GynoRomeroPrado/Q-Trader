@@ -38,17 +38,64 @@ class ExchangeClient:
         self._build_exchange()
 
     def _build_exchange(self) -> None:
-        """Create (or recreate) the ccxt.pro exchange instance."""
+        """Create (or recreate) the ccxt.pro exchange instance.
+
+        Supports market types: spot, future, swap (perpetual).
+        For futures: sets leverage and margin mode after init.
+        """
         exchange_class = getattr(ccxtpro, settings.exchange.id)
+        market_type = settings.exchange.market_type  # spot | future | swap
+
         self._exchange = exchange_class({
             "apiKey": settings.exchange.api_key,
             "secret": settings.exchange.secret,
             "enableRateLimit": True,
-            "options": {"defaultType": "spot"},
+            "options": {"defaultType": market_type},
         })
+
         if settings.exchange.sandbox:
             self._exchange.set_sandbox_mode(True)
             logger.info("🧪 Exchange running in SANDBOX mode")
+
+        self._is_futures = market_type in ("future", "swap")
+        self._reconnect_count = 0
+
+        if self._is_futures:
+            logger.info(
+                f"📊 Futures mode: {market_type} | "
+                f"Leverage: {settings.trading.leverage}x | "
+                f"Margin: {settings.trading.margin_mode}"
+            )
+
+    async def _configure_futures(self, symbol: str) -> None:
+        """Set leverage and margin mode for futures trading.
+
+        Called once before first trade. Safe to call multiple times
+        (exchanges silently accept if already configured).
+        """
+        if not self._is_futures:
+            return
+
+        try:
+            # Set margin mode (isolated/cross)
+            await self._exchange.set_margin_mode(
+                settings.trading.margin_mode,
+                symbol,
+            )
+            logger.info(f"✅ Margin mode set: {settings.trading.margin_mode}")
+        except Exception as e:
+            # Some exchanges don't support this or it's already set
+            logger.debug(f"Margin mode set skipped: {e}")
+
+        try:
+            # Set leverage
+            await self._exchange.set_leverage(
+                settings.trading.leverage,
+                symbol,
+            )
+            logger.info(f"✅ Leverage set: {settings.trading.leverage}x")
+        except Exception as e:
+            logger.debug(f"Leverage set skipped: {e}")
 
     # ------------------------------------------------------------------
     # Resilient WebSocket wrapper

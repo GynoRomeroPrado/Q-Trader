@@ -1,35 +1,44 @@
 [Unit]
-Description=Trading Bot — Automated Crypto Trading Engine
+Description=Q-Trader HFT Bot — Microstructure Trading Engine
+Documentation=https://github.com/your-repo/q-trader
 After=network-online.target
 Wants=network-online.target
+# Disable restart rate limiting — allow infinite restarts
+StartLimitIntervalSec=0
 
 [Service]
-Type=simple
+# === Process Management ===
+Type=notify
+ExecStart=/opt/tradingbot/venv/bin/python /opt/tradingbot/run_bot.py
+WorkingDirectory=/opt/tradingbot
 User=tradingbot
 Group=tradingbot
-WorkingDirectory=/opt/tradingbot
-Environment="PATH=/opt/tradingbot/.venv/bin:/usr/local/bin:/usr/bin"
-ExecStart=/opt/tradingbot/.venv/bin/python /opt/tradingbot/run_bot.py
 
-# Restart policy
-Restart=on-failure
-RestartSec=10
-StartLimitBurst=5
-StartLimitIntervalSec=300
+# === Watchdog ===
+# If the bot doesn't send WATCHDOG=1 within 60s, systemd kills and restarts it.
+# The bot sends pings every 20s via sdnotify.
+WatchdogSec=60s
 
-# Security hardening
+# === Restart Policy ===
+Restart=always
+RestartSec=5s
+
+# === Resource Limits ===
+MemoryMax=512M
+CPUQuota=80%
+
+# === Environment ===
+EnvironmentFile=/opt/tradingbot/.env
+
+# === Security Hardening ===
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/opt/tradingbot/data
-ReadWritePaths=/opt/tradingbot/data/bot.log
+ReadWritePaths=/opt/tradingbot/.env
 
-# Resource limits
-MemoryMax=512M
-CPUQuota=80%
-
-# Logging
+# === Logging ===
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=tradingbot

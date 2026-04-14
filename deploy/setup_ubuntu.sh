@@ -1,109 +1,178 @@
-#!/usr/bin/env bash
-# ============================================================
-# setup_ubuntu.sh — Ubuntu Server 24.04 LTS Provisioning Script
-# Trading Bot deployment on a dedicated Mini PC (headless)
+#!/bin/bash
+# ──────────────────────────────────────────────────────────────
+# Q-Trader — Ubuntu Server 24.04 Deployment Script
 #
 # Usage:
-#   chmod +x deploy/setup_ubuntu.sh
-#   sudo ./deploy/setup_ubuntu.sh
-# ============================================================
+#   sudo bash deploy/setup_ubuntu.sh
+#
+# What this script does:
+#   1. Creates system user 'tradingbot' (no login shell)
+#   2. Copies project to /opt/tradingbot
+#   3. Creates Python venv and installs dependencies
+#   4. Installs systemd service with Watchdog
+#   5. Sets up log rotation
+#   6. Installs external health check (cron)
+#   7. Configures firewall (ufw)
+#   8. Sets file permissions (600 on .env)
+#
+# Prerequisites:
+#   - Ubuntu Server 24.04 LTS (minimal install)
+#   - Python 3.11+ installed
+#   - Internet access for pip install
+#   - .env file configured with API keys
+# ──────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
-# --- Config ---
-APP_USER="tradingbot"
-APP_DIR="/opt/tradingbot"
-PYTHON_VERSION="3.14"
-REPO_SOURCE="$(cd "$(dirname "$0")/.." && pwd)"
+# === Configuration ===
+BOT_USER="tradingbot"
+BOT_DIR="/opt/tradingbot"
+VENV_DIR="${BOT_DIR}/venv"
+DATA_DIR="${BOT_DIR}/data"
+DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$DEPLOY_DIR")"
 
-echo "═══════════════════════════════════════════════════"
-echo "⚡ Trading Bot — Ubuntu Server 24.04 Setup"
-echo "═══════════════════════════════════════════════════"
+echo "═══════════════════════════════════════════════════════"
+echo "⚡ Q-Trader — Ubuntu Server Deployment"
+echo "═══════════════════════════════════════════════════════"
 
-# --- 1. System packages ---
-echo "[1/7] Installing system dependencies..."
-apt-get update -qq
-apt-get install -y -qq \
-    software-properties-common \
-    build-essential \
-    libffi-dev \
-    libssl-dev \
-    libsqlite3-dev \
-    zlib1g-dev \
-    libbz2-dev \
-    libreadline-dev \
-    libncursesw5-dev \
-    liblzma-dev \
-    tk-dev \
-    uuid-dev \
-    curl \
-    wget \
-    git
-
-# --- 2. Python 3.14 via deadsnakes PPA ---
-echo "[2/7] Installing Python ${PYTHON_VERSION}..."
-add-apt-repository -y ppa:deadsnakes/ppa
-apt-get update -qq
-apt-get install -y -qq \
-    "python${PYTHON_VERSION}" \
-    "python${PYTHON_VERSION}-venv" \
-    "python${PYTHON_VERSION}-dev"
-
-# Verify
-python${PYTHON_VERSION} --version || { echo "❌ Python ${PYTHON_VERSION} install failed"; exit 1; }
-
-# --- 3. Create app user (no login shell) ---
-echo "[3/7] Creating system user '${APP_USER}'..."
-if ! id "${APP_USER}" &>/dev/null; then
-    useradd --system --shell /usr/sbin/nologin --home-dir "${APP_DIR}" "${APP_USER}"
+# === Step 1: System User ===
+echo ""
+echo "📦 Step 1: Creating system user '${BOT_USER}'..."
+if id "$BOT_USER" &>/dev/null; then
+    echo "   → User already exists, skipping"
+else
+    useradd --system --home-dir "$BOT_DIR" --shell /usr/sbin/nologin "$BOT_USER"
+    echo "   → Created system user '${BOT_USER}'"
 fi
 
-# --- 4. Deploy application ---
-echo "[4/7] Deploying application to ${APP_DIR}..."
-mkdir -p "${APP_DIR}"
-# Copy project files (exclude .env, data/, .venv/, .git/)
-rsync -a --exclude='.env' --exclude='data/' --exclude='.venv/' \
-    --exclude='.git/' --exclude='__pycache__/' \
-    "${REPO_SOURCE}/" "${APP_DIR}/"
+# === Step 2: Copy Project ===
+echo ""
+echo "📂 Step 2: Deploying to ${BOT_DIR}..."
+mkdir -p "$BOT_DIR"
+mkdir -p "$DATA_DIR"
 
-# Create data directory
-mkdir -p "${APP_DIR}/data"
+# Copy project files (exclude .git, __pycache__, data dir, venv)
+rsync -a --exclude='.git' \
+         --exclude='__pycache__' \
+         --exclude='*.pyc' \
+         --exclude='data/' \
+         --exclude='venv/' \
+         --exclude='.env' \
+         "$PROJECT_DIR/" "$BOT_DIR/"
 
-# --- 5. Python venv + dependencies ---
-echo "[5/7] Creating virtual environment and installing packages..."
-python${PYTHON_VERSION} -m venv "${APP_DIR}/.venv"
-"${APP_DIR}/.venv/bin/pip" install --upgrade pip -q
-"${APP_DIR}/.venv/bin/pip" install -r "${APP_DIR}/requirements.txt" -q
-
-echo "    ✅ Installed packages:"
-"${APP_DIR}/.venv/bin/pip" list --format=columns | grep -iE "ccxt|fastapi|uvicorn|duckdb|ta "
-
-# --- 6. Set permissions ---
-echo "[6/7] Setting file permissions..."
-chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
-chmod 700 "${APP_DIR}/data"
-# .env must be created manually with restricted permissions
-if [ ! -f "${APP_DIR}/.env" ]; then
-    cp "${APP_DIR}/.env.example" "${APP_DIR}/.env"
-    chown "${APP_USER}:${APP_USER}" "${APP_DIR}/.env"
-    chmod 600 "${APP_DIR}/.env"
-    echo "    ⚠️  Created .env from template — EDIT IT with your API keys!"
+# Copy .env if it doesn't exist at destination
+if [ ! -f "${BOT_DIR}/.env" ]; then
+    if [ -f "${PROJECT_DIR}/.env" ]; then
+        cp "${PROJECT_DIR}/.env" "${BOT_DIR}/.env"
+        echo "   → .env copied from project"
+    elif [ -f "${PROJECT_DIR}/.env.example" ]; then
+        cp "${PROJECT_DIR}/.env.example" "${BOT_DIR}/.env"
+        echo "   ⚠️  .env.example copied — EDIT IT with real credentials!"
+    else
+        echo "   ⚠️  No .env found! Create ${BOT_DIR}/.env manually"
+    fi
 fi
 
-# --- 7. Install systemd service ---
-echo "[7/7] Installing systemd service..."
-cp "${APP_DIR}/deploy/tradingbot.service" /etc/systemd/system/tradingbot.service
+# === Step 3: Python Virtual Environment ===
+echo ""
+echo "🐍 Step 3: Setting up Python virtual environment..."
+if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+    echo "   → Created venv at ${VENV_DIR}"
+fi
+
+"${VENV_DIR}/bin/pip" install --upgrade pip wheel setuptools -q
+"${VENV_DIR}/bin/pip" install -r "${BOT_DIR}/requirements.txt" -q
+echo "   → Dependencies installed"
+
+# === Step 4: File Permissions ===
+echo ""
+echo "🔒 Step 4: Setting permissions..."
+chown -R "${BOT_USER}:${BOT_USER}" "$BOT_DIR"
+chmod 600 "${BOT_DIR}/.env"
+chmod -R 750 "$DATA_DIR"
+echo "   → .env: 600 | data/: 750 | owner: ${BOT_USER}"
+
+# === Step 5: systemd Service ===
+echo ""
+echo "⚙️  Step 5: Installing systemd service..."
+cp "${BOT_DIR}/deploy/tradingbot.service" /etc/systemd/system/tradingbot.service
 systemctl daemon-reload
-systemctl enable tradingbot.service
+systemctl enable tradingbot
+echo "   → Service installed and enabled"
 
+# === Step 6: Log Rotation ===
 echo ""
-echo "═══════════════════════════════════════════════════"
-echo "✅ Setup complete!"
+echo "📋 Step 6: Configuring log rotation..."
+cat > /etc/logrotate.d/tradingbot << 'LOGROTATE'
+/opt/tradingbot/data/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 640 tradingbot tradingbot
+    postrotate
+        systemctl reload tradingbot 2>/dev/null || true
+    endscript
+}
+LOGROTATE
+echo "   → /etc/logrotate.d/tradingbot created (14 days retention)"
+
+# === Step 7: Health Check Cron ===
 echo ""
-echo "Next steps:"
-echo "  1. Edit your API keys:    sudo -u ${APP_USER} nano ${APP_DIR}/.env"
-echo "  2. Start the bot:         sudo systemctl start tradingbot"
-echo "  3. Check status:          sudo systemctl status tradingbot"
-echo "  4. View logs:             sudo journalctl -u tradingbot -f"
-echo "  5. Setup tunnel:          See deploy/cloudflared.md"
-echo "═══════════════════════════════════════════════════"
+echo "🩺 Step 7: Installing health check cron..."
+cp "${BOT_DIR}/deploy/healthcheck.sh" /opt/tradingbot/healthcheck.sh
+chmod +x /opt/tradingbot/healthcheck.sh
+cat > /etc/cron.d/tradingbot-health << 'CRON'
+# Q-Trader health check — runs every 5 minutes
+*/5 * * * * root /opt/tradingbot/healthcheck.sh
+CRON
+echo "   → Health check cron installed (every 5 min)"
+
+# === Step 8: Firewall ===
+echo ""
+echo "🛡️  Step 8: Configuring firewall..."
+if command -v ufw &>/dev/null; then
+    ufw --force enable 2>/dev/null || true
+    ufw allow 22/tcp comment 'SSH' 2>/dev/null || true
+
+    # Dashboard port (only if remote access needed)
+    # ufw allow 8888/tcp comment 'Q-Trader Dashboard'
+
+    echo "   → ufw enabled (SSH allowed, dashboard blocked by default)"
+    echo "   → To allow remote dashboard: ufw allow 8888/tcp"
+else
+    echo "   → ufw not found, skipping firewall config"
+fi
+
+# === Step 9: Journal size limit ===
+echo ""
+echo "💾 Step 9: Configuring journald..."
+mkdir -p /etc/systemd/journald.conf.d/
+cat > /etc/systemd/journald.conf.d/tradingbot.conf << 'JOURNAL'
+[Journal]
+SystemMaxUse=200M
+SystemMaxFileSize=50M
+JOURNAL
+systemctl restart systemd-journald 2>/dev/null || true
+echo "   → Journal max size: 200M"
+
+# === Done! ===
+echo ""
+echo "═══════════════════════════════════════════════════════"
+echo "✅ Deployment complete!"
+echo ""
+echo "   Next steps:"
+echo "   1. Edit /opt/tradingbot/.env with your API keys"
+echo "   2. Start the bot:  sudo systemctl start tradingbot"
+echo "   3. Check status:   sudo systemctl status tradingbot"
+echo "   4. View logs:      sudo journalctl -u tradingbot -f"
+echo "   5. Stop the bot:   sudo systemctl stop tradingbot"
+echo ""
+echo "   Remote access (optional):"
+echo "   - Cloudflare Tunnel: see deploy/cloudflared.md"
+echo "   - Direct: sudo ufw allow 8888/tcp"
+echo "═══════════════════════════════════════════════════════"

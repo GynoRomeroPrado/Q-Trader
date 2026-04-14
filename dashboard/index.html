@@ -3,101 +3,560 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Bot Dashboard</title>
-    <meta name="description" content="Real-time trading bot monitoring dashboard">
+    <title>Q-Trader — Standalone Command Center</title>
+    <meta name="description" content="Q-Trader HFT microstructure trading bot command center">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <link rel="stylesheet" href="style.css">
+    <!-- Inline styles for new Wizard components mapping to Stitch MCP specs -->
+    <style>
+        /* Wizard & Glassmorphism additions */
+        .wizard-screen {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            background: radial-gradient(circle at center, rgba(56,139,253,0.05) 0%, #06080f 100%);
+            position: absolute;
+            top: 0; left: 0; z-index: 1000;
+        }
+        .wizard-card {
+            background: rgba(13, 17, 23, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 40px;
+            width: 500px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+        .wizard-card h1 { margin-bottom: 24px; font-size: 24px; display: flex; align-items: center; gap: 10px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 13px; font-weight: 500;}
+        .form-group input { 
+            width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); 
+            border-radius: 8px; color: white; font-family: 'JetBrains Mono', monospace;
+            transition: all 0.2s ease;
+        }
+        .form-group input:focus { border-color: var(--accent-cyan); outline: none; box-shadow: 0 0 0 2px rgba(63,184,175,0.2); }
+        .wizard-btn {
+            width: 100%; padding: 14px; background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            border: none; border-radius: 8px; color: white; font-weight: 600; font-size: 15px;
+            cursor: pointer; transition: transform 0.1s, filter 0.2s; margin-top: 10px;
+        }
+        .wizard-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+        .hidden { display: none !important; }
+        .app-view { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        
+        /* Sidebar layout for multi-screens */
+        .app-layout { display: flex; height: calc(100vh - 40px); margin-top: 20px; }
+        .sidebar { width: 80px; display: flex; flex-direction: column; align-items: center; padding-top: 20px; gap: 20px; border-right: 1px solid var(--border-glass);}
+        .nav-btn { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: transparent; border: 1px solid transparent; color: var(--text-secondary); font-size: 20px; transition: all 0.2s; }
+        .nav-btn:hover, .nav-btn.active { background: var(--bg-glass); border-color: var(--border-glass); color: var(--accent-cyan); }
+        .view-content { flex: 1; overflow-y: auto; padding: 0 24px; }
+        .screen { display: none; height: 100%; }
+        .screen.active { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Domain Tab Bar */
+        .domain-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border-glass); background: rgba(6,8,15,0.95); padding: 0 20px; }
+        .domain-tab {
+            padding: 12px 24px; font-size: 13px; font-weight: 600; cursor: pointer;
+            color: var(--text-muted); background: transparent; border: none;
+            border-bottom: 2px solid transparent; transition: all 0.2s;
+            display: flex; align-items: center; gap: 8px; font-family: inherit;
+        }
+        .domain-tab:hover { color: var(--text-secondary); background: var(--bg-glass); }
+        .domain-tab.active { color: var(--text-primary); border-bottom-color: var(--accent-cyan); }
+        .domain-tab.active[data-domain='stocks'] { border-bottom-color: var(--accent-blue); }
+        .domain-tab.active[data-domain='sports'] { border-bottom-color: var(--accent-purple); }
+        .domain-tab .tab-badge {
+            font-size: 9px; padding: 2px 6px; border-radius: 10px;
+            background: var(--bg-glass); color: var(--text-muted); font-weight: 700;
+            letter-spacing: 0.5px; text-transform: uppercase;
+        }
+
+        /* Domain screens */
+        .domain-screen { display: none; height: 100%; }
+        .domain-screen.active { display: block; animation: fadeIn 0.3s; }
+
+        /* Placeholder module styles */
+        .module-placeholder {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: calc(100vh - 200px); text-align: center; gap: 20px; padding: 40px;
+        }
+        .module-placeholder .module-icon { font-size: 72px; margin-bottom: 8px; filter: grayscale(0.3); }
+        .module-placeholder h2 { font-size: 28px; font-weight: 700; color: var(--text-primary); }
+        .module-placeholder p { color: var(--text-secondary); font-size: 15px; max-width: 480px; line-height: 1.6; }
+        .progress-bar { width: 300px; height: 6px; background: var(--bg-glass); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+        .progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+        .progress-fill.stocks { width: 30%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan)); }
+        .progress-fill.sports { width: 10%; background: linear-gradient(90deg, var(--accent-purple), #c084fc); }
+        .placeholder-cards {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+            width: 100%; max-width: 800px; margin-top: 16px;
+        }
+        .placeholder-card {
+            background: var(--bg-card); border: 1px solid var(--border-glass);
+            border-radius: var(--radius); padding: 16px; text-align: center; position: relative;
+        }
+        .placeholder-card .metric-label { margin-bottom: 6px; }
+        .placeholder-card .metric-value { color: var(--text-muted); }
+        .dev-badge {
+            position: absolute; top: 8px; right: 8px; font-size: 8px; padding: 2px 6px;
+            background: rgba(210,153,34,0.15); color: var(--accent-amber);
+            border-radius: 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+        }
+
+        /* Alpha Radar X */
+        .alpha-radar-section {
+            margin-top: 20px; padding: 0;
+            background: var(--bg-card); border: 1px solid var(--border-glass);
+            border-radius: var(--radius); padding: 16px;
+            position: relative; overflow: hidden;
+        }
+        .alpha-radar-section::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan), var(--accent-blue));
+            opacity: 0.7;
+        }
+        .alpha-radar-section .section-header { margin-bottom: 14px; }
+        .radar-highlights { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .radar-highlight-card {
+            background: var(--bg-glass); border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm); padding: 14px;
+        }
+        .radar-symbol { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+        .radar-trend { font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+        .radar-bars { display: flex; flex-direction: column; gap: 6px; }
+        .radar-bar-row { display: flex; align-items: center; gap: 8px; }
+        .radar-bar-label { font-size: 10px; color: var(--text-muted); width: 36px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+        .radar-bar-track { flex: 1; height: 6px; background: rgba(255,255,255,0.04); border-radius: 3px; overflow: hidden; }
+        .radar-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+        .radar-bar-val { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); width: 40px; text-align: right; }
+        .radar-horizon { font-size: 10px; color: var(--text-muted); margin-top: 8px; letter-spacing: 0.3px; }
+    </style>
 </head>
 <body>
-    <!-- Login Screen -->
-    <div id="login-screen" class="login-screen">
-        <div class="login-card">
-            <div class="login-logo">⚡</div>
-            <h1>Trading Bot</h1>
-            <p>Ingresa tu API key para continuar</p>
-            <input type="password" id="api-key-input" placeholder="API Key" autocomplete="off">
-            <button id="login-btn" onclick="handleLogin()">Conectar</button>
-            <p id="login-error" class="error-text"></p>
+    <!-- Setup Wizard Screen (Initial Run & Config) -->
+    <div id="setup-screen" class="wizard-screen hidden">
+        <div class="wizard-card" id="wizard-form-container">
+            <h1><span style="color:var(--accent-cyan)">⚡</span> Q-Trader Setup</h1>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 24px;">Configura tus credenciales para iniciar el motor HFT localmente. Todos los datos se guardan encriptados en '.env'.</p>
+            
+            <div class="form-group">
+                <label>Nombre de Usuario / Alias</label>
+                <input type="text" id="cfg-username" placeholder="Ej: John Doe" autocomplete="off">
+            </div>
+            
+            <div id="api-keys-section" class="hidden">
+                <div class="form-group">
+                    <label>Dashboard Key (Para bloquear UI)</label>
+                    <input type="password" id="cfg-dashkey" placeholder="••••••••" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label>Binance Spot API Key</label>
+                    <input type="password" id="cfg-binkey" placeholder="API Key" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label>Binance Spot Secret</label>
+                    <input type="password" id="cfg-binsec" placeholder="Secret Key" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label>Google Gemini API Key (Cerebro 3 NLP)</label>
+                    <input type="password" id="cfg-gemkey" placeholder="AIzaSy..." autocomplete="new-password">
+                </div>
+            </div>
+            
+            <div class="form-group" id="login-only-section" class="hidden">
+                <label>Dashboard Access Key</label>
+                <input type="password" id="login-apipw" placeholder="Dashboard Secret Key" autocomplete="current-password">
+            </div>
+
+            <button type="button" id="btn-save-cfg" class="wizard-btn hidden" onclick="saveConfiguration()">Guardar Configuración HFT</button>
+            <button type="button" id="btn-login-cfg" class="wizard-btn hidden" onclick="handleLogin()">Desbloquear Sistema</button>
+            <button type="button" id="btn-demo-mode" class="wizard-btn" style="background:#484f58" onclick="startDemo()">Explorar App Visual (Skip Keys)</button>
+            <p id="setup-error" class="error-text" style="text-align: center; margin-top: 15px; color: var(--pnl-negative);"></p>
         </div>
     </div>
 
-    <!-- Dashboard -->
-    <div id="dashboard" class="dashboard hidden">
-        <!-- Header -->
+    <!-- Main Native Application Layout -->
+    <div id="desktop-app" class="app-view hidden">
         <header class="header">
             <div class="header-left">
                 <span class="logo">⚡</span>
-                <h1>Trading Bot</h1>
+                <h1 style="font-size:18px;">Q-Trader</h1>
                 <span id="bot-status-badge" class="badge badge-offline">Offline</span>
+                <span id="paper-badge" class="badge badge-paper hidden">PAPER</span>
+                <span id="market-hours-badge" class="badge badge-paper" style="font-size:11px;cursor:help;" title="NYSE Market Hours"></span>
+                <span id="active-domain-badge" class="badge" style="font-size:10px;background:rgba(56,139,253,0.12);color:#388bfd;border:1px solid rgba(56,139,253,0.25);" title="Dominio activo en el backend"></span>
             </div>
             <div class="header-right">
-                <span id="ws-status" class="ws-indicator">⬤ Desconectado</span>
-                <button class="btn-icon" onclick="location.reload()">↻</button>
+                <div id="oracle-badge" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;background:var(--bg-glass);border:1px solid var(--border-glass);margin-right:12px;font-size:12px;font-weight:600;cursor:default;" title="Sentinel Oracle Status">
+                    <span id="oracle-indicator" style="font-size:10px;">&#9679;</span>
+                    <span id="oracle-label" style="color:var(--text-secondary);">Oracle</span>
+                    <span id="oracle-model-label" style="font-size:9px;opacity:0.7;margin-left:2px;"></span>
+                </div>
+                <style>
+                    .oracle-normal  { color: #3fb8af !important; }
+                    .oracle-elevated { color: #d29922 !important; }
+                    .oracle-critical { color: #f85149 !important; animation: oracle-pulse 1s infinite; }
+                    @keyframes oracle-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+                </style>
+                <button class="nav-btn" style="width:32px; height:32px; margin-right:8px;font-size:16px;" onclick="showConfigScreen()" title="Configuración de APIs" id="btn-config-gear">⚙</button>
+                <span style="color:#8b949e; margin-right:15px;" id="lbl-username">Trader</span>
+                <span id="ws-status" class="ws-indicator">&#11044; Desconectado</span>
+                <button class="nav-btn" style="width:32px; height:32px; margin-left:10px" onclick="loadAllData()" title="Refrescar">&#8635;</button>
             </div>
         </header>
 
-        <!-- Metric Cards -->
-        <section class="metrics-grid">
-            <div class="metric-card">
-                <div class="metric-label">PnL Total</div>
-                <div id="total-pnl" class="metric-value pnl-neutral">$0.00</div>
-                <div class="metric-sub">Acumulado</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">PnL Hoy</div>
-                <div id="today-pnl" class="metric-value pnl-neutral">$0.00</div>
-                <div class="metric-sub" id="today-trades-count">0 trades</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Balance</div>
-                <div id="current-balance" class="metric-value">$0.00</div>
-                <div class="metric-sub">USDT disponible</div>
-            </div>
-            <div class="metric-card">
-                <div class="metric-label">Trades Totales</div>
-                <div id="total-trades" class="metric-value">0</div>
-                <div class="metric-sub">Desde el inicio</div>
-            </div>
-        </section>
+            <!-- Domain Tab Bar -->
+            <nav class="domain-tabs">
+                <button class="domain-tab active" data-domain="crypto" onclick="switchDomain('crypto')">
+                    <span>₿</span> Criptomonedas
+                </button>
+                <button class="domain-tab" data-domain="stocks" onclick="switchDomain('stocks')">
+                    <span>📊</span> Acciones <span class="tab-badge">BETA</span>
+                </button>
+                <button class="domain-tab" data-domain="sports" onclick="switchDomain('sports')">
+                    <span>🏆</span> Apuestas <span class="tab-badge">I+D</span>
+                </button>
+            </nav>
 
-        <!-- Chart Section -->
-        <section class="chart-section">
-            <div class="section-header">
-                <h2>Equity Curve</h2>
-            </div>
-            <div id="equity-chart" class="chart-container"></div>
-        </section>
+        <div class="app-layout">
+            <!-- Navigation Sidebar (Multi-screen) -->
+            <aside class="sidebar">
+                <button class="nav-btn active" onclick="switchScreen('screen-dashboard')" title="Command Center">🎛️</button>
+                <button class="nav-btn" onclick="switchScreen('screen-brain')" title="AI Brain & Sentiments">🧠</button>
+                <button class="nav-btn" onclick="switchScreen('screen-datalake')" title="Datalake & Storage">💾</button>
+                <button class="nav-btn" onclick="showConfigScreen()" title="Configuración">⚙️</button>
+            </aside>
 
-        <!-- Recent Trades Table -->
-        <section class="trades-section">
-            <div class="section-header">
-                <h2>Trades Recientes</h2>
-            </div>
-            <div class="table-wrapper">
-                <table id="trades-table">
-                    <thead>
-                        <tr>
-                            <th>Hora</th>
-                            <th>Par</th>
-                            <th>Lado</th>
-                            <th>Precio</th>
-                            <th>Cantidad</th>
-                            <th>PnL</th>
-                        </tr>
-                    </thead>
-                    <tbody id="trades-body">
-                        <tr><td colspan="6" class="empty-state">Sin trades aún</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+            <!-- Screens Container -->
+            <main class="view-content">
+                
+                <!-- Screen 1: Dashboard (Legacy main-grid) -->
+                <div id="screen-dashboard" class="screen active">
+                    <div class="main-grid">
+                        <div class="left-column">
+                            <!-- Metrics -->
+                            <section class="metrics-grid">
+                                <div class="metric-card" title="Saldo disponible en tu wallet de paper trading (USDT)"><div class="metric-icon">💰</div><div class="metric-body"><div class="metric-label">Balance USDT</div><div id="current-balance" class="metric-value">$0.00</div><div class="metric-sub">Disponible</div></div></div>
+                                <div class="metric-card" title="Ganancia o pérdida sobre posiciones abiertas que aún no se han cerrado"><div class="metric-icon">📈</div><div class="metric-body"><div class="metric-label">PnL Irrealizado</div><div id="unrealized-pnl" class="metric-value pnl-neutral">$0.00</div><div class="metric-sub" id="pnl-percent">0.00%</div></div></div>
+                                <div class="metric-card" id="card-oracle" title="El Oracle analiza noticias con Gemini AI para detectar pánico de mercado y pausar el trading automáticamente"><div class="metric-icon" id="oracle-icon">🧠</div><div class="metric-body"><div class="metric-label">Oráculo AI</div><div id="oracle-status" class="metric-value oracle-safe">SEGURO</div><div class="metric-sub" id="oracle-detail">Score: —</div></div></div>
+                                <div class="metric-card" title="Número de operaciones ejecutadas por el bot en la sesión de hoy"><div class="metric-icon">⚡</div><div class="metric-body"><div class="metric-label">Trades (Hoy)</div><div id="total-trades" class="metric-value">0</div><div class="metric-sub" id="today-trades-count">0 hoy</div></div></div>
+                                <div class="metric-card" title="Porcentaje de trades que cerraron con ganancia. Más de 50% es positivo"><div class="metric-icon">🎯</div><div class="metric-body"><div class="metric-label">Win Rate</div><div id="win-rate" class="metric-value">0.0%</div><div class="metric-sub">Tasa de aciertos</div></div></div>
+                                <div class="metric-card" title="La mayor caída porcentual del saldo desde su punto más alto. Menor es mejor"><div class="metric-icon">📉</div><div class="metric-body"><div class="metric-label">Max Drawdown</div><div id="max-drawdown" class="metric-value">0.0%</div><div class="metric-sub">Caída máxima</div></div></div>
+                            </section>
 
-        <!-- Footer -->
-        <footer class="footer">
-            <span>Trading Bot v1.0 — Última actualización: <span id="last-update">—</span></span>
-        </footer>
+                            <section class="chart-section" style="margin-top:20px;">
+                                <div class="section-header"><h2>Equity Curve</h2></div>
+                                <div id="equity-chart" class="chart-container" style="height:350px;"></div>
+                            </section>
+
+                            <section class="trades-section" style="margin-top:20px;">
+                                <div class="section-header"><h2>Trades Recientes</h2></div>
+                                <div class="table-wrapper">
+                                    <table id="trades-table">
+                                        <thead><tr><th>Hora</th><th>Par</th><th>Lado</th><th>Precio</th><th>Cantidad</th><th>PnL</th></tr></thead>
+                                        <tbody id="trades-body"><tr><td colspan="6" class="empty-state">Sin trades aún</td></tr></tbody>
+                                    </table>
+                                </div>
+                            </section>
+
+                            <!-- Alpha Radar X — Crypto -->
+                            <section id="crypto_radar" class="alpha-radar-section">
+                                <div class="section-header"><h2>📡 Alpha Radar X</h2><span class="badge badge-paper" style="font-size:9px">Cargando…</span></div>
+                            </section>
+                        </div>
+
+                        <div class="right-column">
+                            <!-- Control Panel -->
+                            <section class="control-panel">
+                                <div class="section-header"><h2>Panel de Control</h2><span id="engine-state" class="engine-state">—</span></div>
+                                <div class="control-buttons">
+                                    <button id="btn-pause" class="ctrl-btn ctrl-pause" onclick="controlAction('pause')"><span class="ctrl-icon">⏸</span><span>Pausar</span></button>
+                                    <button id="btn-resume" class="ctrl-btn ctrl-resume" onclick="controlAction('resume')"><span class="ctrl-icon">▶</span><span>Reanudar</span></button>
+                                    <button id="btn-panic" class="ctrl-btn ctrl-panic" onclick="controlPanic()"><span class="ctrl-icon">🚨</span><span>PANIC STOP</span></button>
+                                </div>
+                            </section>
+
+                            <!-- Audit Console -->
+                            <section class="audit-section" style="margin-top:20px;">
+                                <div class="section-header">
+                                    <h2>Consola del Sistema</h2>
+                                    <div class="audit-controls" style="display:flex;gap:8px;align-items:center;">
+                                        <select id="log-filter" onchange="refreshLogs()" style="background:var(--bg-glass);border:1px solid var(--border-glass);border-radius:6px;padding:4px 8px;color:var(--text-secondary);font-size:11px;cursor:pointer;">
+                                            <option value="">Todos</option>
+                                            <option value="INFO">Info</option>
+                                            <option value="WARNING">Warning</option>
+                                            <option value="ERROR">Error</option>
+                                            <option value="TRADE">Trades</option>
+                                        </select>
+                                        <button class="btn-sm" onclick="clearConsole()">✕ Clear</button>
+                                    </div>
+                                </div>
+                                <div id="audit-console" class="audit-console" style="height: 500px;">
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Screen 2: AI Brain Panel -->
+                <div id="screen-brain" class="screen">
+                    <h2 style="margin-bottom:20px; color:var(--text-primary)">🧠 Cerebro Inteligente & Sentimiento</h2>
+                    <div class="metrics-grid" style="grid-template-columns: 1fr 1fr;">
+                         <div class="oracle-card" style="padding:20px">
+                            <div class="oracle-header"><span>Estado del Motor NLP (Gemini)</span></div>
+                            <div class="oracle-body" style="font-size: 15px; line-height: 2;">
+                                <div class="oracle-row"><span class="oracle-key">Score de Sentimiento:</span><span id="screen-oracle-score" class="oracle-val" style="color:var(--accent-cyan)">—</span></div>
+                                <div class="oracle-row"><span class="oracle-key">Último RSS Analizado:</span><span id="screen-oracle-provider" class="oracle-val">—</span></div>
+                                <div class="oracle-row"><span class="oracle-key">Headlines en Caché:</span><span id="screen-oracle-headlines" class="oracle-val">—</span></div>
+                                <div class="oracle-row" id="screen-panic-row" style="display:none"><span class="oracle-key" style="color:red">RAZÓN PANIC:</span><span id="screen-panic-reason" style="color:red" class="oracle-val">—</span></div>
+                            </div>
+                        </div>
+                        <div class="metric-card" style="justify-content: center; align-items: center; padding: 20px;">
+                            <p style="color: var(--text-secondary); text-align:center;">El Oráculo monitoriza feeds RSS y extrae señales alcistas/bajistas para prevenir compras en caídas de mercado sistémicas (Circuit Breaker).</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Screen 3: Remote Datalake / Hosting Config -->
+                <div id="screen-datalake" class="screen">
+                    <h2 style="margin-bottom:20px; color:var(--text-primary)">💾 Remote Datalake (Cold Storage)</h2>
+                    <div class="wizard-card" style="width: 100%; border:1px solid var(--border-glass); background:var(--bg-card)">
+                        <p style="color:var(--text-secondary); margin-bottom: 20px;">
+                            Configura tu hosting externo de 20GB para offload de datos históricos.
+                            Para evitar saturar la MiniPC local, el histórico viaja al Cold Storage.
+                        </p>
+                        <div class="form-group">
+                            <label>Datalake S3 / FTP Endpoint (Futuro Soporte)</label>
+                            <input type="text" placeholder="sftp://usuario:clave@hosting.com/qtrader" disabled>
+                        </div>
+                        <button class="wizard-btn" style="background:#484f58" disabled>Conectar Storage (Próxima Fase)</button>
+                    </div>
+                </div>
+
+                <!-- ========== STOCKS DOMAIN ========== -->
+                <div id="stocks_main" class="domain-screen">
+                    <div style="padding: 20px;">
+                        <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+                            <h2 style="color:var(--text-primary); font-size:20px;">📊 Módulo de Acciones</h2>
+                            <span id="stocks-state" class="badge badge-paper">PAPER</span>
+                        </div>
+
+                        <p id="stocks-error" class="error-text" style="display:none; margin-bottom:16px;"></p>
+
+                        <section id="stocks_controls" style="display:flex; align-items:center; gap:12px; margin-bottom:20px; padding:14px 18px; background:rgba(255,255,255,0.04); border-radius:12px; border:1px solid rgba(255,255,255,0.08);">
+                            <span style="font-size:13px; color:var(--text-secondary); margin-right:4px;">Bot:</span>
+                            <span id="stocks-bot-state-badge" class="badge badge-paper" style="min-width:72px; text-align:center;">OFFLINE</span>
+                            <!-- Dynamic Start/Stop button (TAREA 3) -->
+                            <button id="stocks-domain-toggle-btn" onclick="toggleStocksDomain()" style="padding:6px 18px; font-size:12px; background:#2ecc71; border:none; border-radius:8px; cursor:pointer; color:#fff; font-weight:600;">▶ Activar Stocks Bot</button>
+                            <button id="stocks_pause_btn" class="wizard-btn" style="padding:6px 16px; font-size:12px; background:var(--accent-orange,#f0a050); border:none; border-radius:8px; cursor:pointer; color:#fff;">⏸ Pausar</button>
+                            <button id="stocks_resume_btn" class="wizard-btn" style="padding:6px 16px; font-size:12px; background:var(--accent-green,#2ecc71); border:none; border-radius:8px; cursor:pointer; color:#fff;">▶ Reanudar</button>
+                            <button id="stocks_panic_btn" class="wizard-btn" style="padding:6px 16px; font-size:12px; background:#e74c3c; border:none; border-radius:8px; cursor:pointer; color:#fff; font-weight:700;">🚨 Panic Stop</button>
+                            <span id="stocks-bot-last-cycle" style="font-size:11px; color:var(--text-secondary); margin-left:auto;"></span>
+                            <span id="stocks-bot-last-error" style="font-size:11px; color:#e74c3c; max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+                        </section>
+
+                        <!-- Alpaca Balance Bar (TAREA 4) -->
+                        <section id="alpaca-balance-bar" style="display:flex; align-items:center; gap:20px; margin-bottom:20px; padding:14px 18px; background:rgba(46,204,113,0.07); border-radius:12px; border:1px solid rgba(46,204,113,0.18);">
+                            <span style="font-size:13px; color:var(--text-secondary);">💰 Cuenta Alpaca:</span>
+                            <span class="skeleton" id="alpaca-cash-val" style="font-size:14px; font-weight:600; color:var(--text-primary);">—</span>
+                            <span style="font-size:12px; color:var(--text-muted);">Cash</span>
+                            <span style="color:rgba(255,255,255,0.15);">|</span>
+                            <span class="skeleton" id="alpaca-equity-val" style="font-size:14px; font-weight:600; color:var(--text-primary);">—</span>
+                            <span style="font-size:12px; color:var(--text-muted);">Equity</span>
+                            <span style="color:rgba(255,255,255,0.15);">|</span>
+                            <span class="skeleton" id="alpaca-bp-val" style="font-size:14px; font-weight:600; color:var(--text-primary);">—</span>
+                            <span style="font-size:12px; color:var(--text-muted);">Poder de compra</span>
+                            <span id="alpaca-mode-badge" class="badge badge-paper" style="margin-left:auto;">PAPER</span>
+                        </section>
+
+                        <!-- Aggregated Metrics -->
+                        <section class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:20px;">
+                            <div class="metric-card"><div class="metric-icon">💼</div><div class="metric-body"><div class="metric-label">Total PnL</div><div id="stocks-portfolio-val" class="metric-value pnl-neutral">$0.00</div><div class="metric-sub">Acumulado</div></div></div>
+                            <div class="metric-card"><div class="metric-icon">⚡</div><div class="metric-body"><div class="metric-label">Trades</div><div id="stocks-total-trades" class="metric-value">0</div><div class="metric-sub">Todos los símbolos</div></div></div>
+                            <div class="metric-card"><div class="metric-icon">🎯</div><div class="metric-body"><div class="metric-label">Win Rate</div><div id="stocks-win-rate" class="metric-value">0.0%</div><div class="metric-sub">Tasa de aciertos</div></div></div>
+                            <div class="metric-card"><div class="metric-icon">📉</div><div class="metric-body"><div class="metric-label">Max Drawdown</div><div id="stocks-max-dd" class="metric-value">0.0%</div><div class="metric-sub">Caída máxima</div></div></div>
+                        </section>
+
+                        <!-- Per-Symbol Table -->
+                        <section class="trades-section">
+                            <div class="section-header"><h2>Rendimiento por Símbolo</h2></div>
+                            <div class="table-wrapper">
+                                <table id="stocks-table">
+                                    <thead><tr>
+                                        <th>Símbolo</th><th>Último</th><th>Día %</th>
+                                        <th>Trades</th><th>PnL</th><th>Win Rate</th><th>Drawdown</th>
+                                    </tr></thead>
+                                    <tbody id="stocks-tbody">
+                                        <tr><td colspan="7" class="empty-state">Cargando datos de acciones…</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <!-- PnL Hoy — Stocks (merged into main metrics above, kept as single inline row) -->
+                        <section id="stocks_pnl_summary" style="display:flex;align-items:center;gap:20px;margin-top:16px;padding:14px 18px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                            <span style="font-size:13px;color:var(--text-secondary);">📅 Hoy:</span>
+                            <span id="stocks-bot-today" class="metric-value pnl-neutral" style="font-size:15px;">$0.00</span>
+                            <span id="stocks-bot-today-count" style="font-size:12px;color:var(--text-muted);">0 trades hoy</span>
+                            <span style="margin-left:auto;font-size:12px;color:var(--text-muted);">Bot PnL: <strong id="stocks-bot-pnl" class="pnl-neutral">$0.00</strong></span>
+                            <span style="font-size:12px;color:var(--text-muted);">Trades: <strong id="stocks-bot-trades">0</strong></span>
+                            <span style="font-size:12px;color:var(--text-muted);">WR: <strong id="stocks-bot-wr">0.0%</strong></span>
+                        </section>
+
+                        <!-- Trades History — Stocks -->
+                        <section class="trades-section" style="margin-top:20px;">
+                            <div class="section-header"><h2>Historial de Trades (Stocks Bot)</h2></div>
+                            <div class="table-wrapper">
+                                <table id="stocks-trades-table">
+                                    <thead><tr>
+                                        <th>Hora</th><th>Símbolo</th><th>Lado</th>
+                                        <th>Precio</th><th>Cantidad</th><th>PnL</th><th>Razón</th>
+                                    </tr></thead>
+                                    <tbody id="stocks-trades-tbody">
+                                        <tr><td colspan="7" class="empty-state">Sin trades de acciones aún</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <!-- Alpha Radar X — Stocks -->
+                        <section id="stocks_radar" class="alpha-radar-section">
+                            <div class="section-header"><h2>📡 Alpha Radar X</h2><span class="badge badge-paper" style="font-size:9px">Cargando…</span></div>
+                        </section>
+
+                        <!-- Configuration — Stocks -->
+                        <section id="stocks_config_section" class="trades-section" style="margin-top:20px;">
+                            <div class="section-header"><h2>⚙️ Configuración de Estrategia y Riesgo</h2></div>
+                            <form id="stocks_config_form" style="display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:16px; background:rgba(255,255,255,0.03); border-radius:10px; border:1px solid rgba(255,255,255,0.08);">
+
+                                <div style="grid-column:1/-1;">
+                                    <label style="font-size:12px; color:var(--text-secondary); margin-bottom:4px; display:block;">Watchlist (símbolos separados por coma)</label>
+                                    <input type="text" id="stocks_watchlist_input" placeholder="AAPL,MSFT,TSLA" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:13px;">
+                                </div>
+
+                                <div>
+                                    <label style="font-size:12px; color:var(--text-secondary); margin-bottom:4px; display:block;">MA Rápida (ventana)</label>
+                                    <input type="number" id="stocks_ma_fast_input" min="1" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:13px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:12px; color:var(--text-secondary); margin-bottom:4px; display:block;">MA Lenta (ventana)</label>
+                                    <input type="number" id="stocks_ma_slow_input" min="2" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:13px;">
+                                </div>
+
+                                <div>
+                                    <label style="font-size:12px; color:var(--text-secondary); margin-bottom:4px; display:block;">Margen de señal</label>
+                                    <input type="number" step="0.0001" id="stocks_margin_input" min="0.0001" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:13px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:12px; color:var(--text-secondary); margin-bottom:4px; display:block;">Qty por defecto</label>
+                                    <input type="number" step="0.01" id="stocks_default_qty_input" min="0.01" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:13px;">
+                                </div>
+
+                                <div>
+                                    <label style="font-size:12px; color:var(--text-secondary); margin-bottom:4px; display:block;">Máx. qty por posición</label>
+                                    <input type="number" step="0.01" id="stocks_max_qty_input" min="0.01" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:13px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:12px; color:var(--text-secondary); margin-bottom:4px; display:block;">Máx. trades diarios</label>
+                                    <input type="number" id="stocks_max_daily_input" min="1" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:13px;">
+                                </div>
+
+                                <div style="grid-column:1/-1; display:flex; align-items:center; gap:12px; margin-top:4px;">
+                                    <button type="submit" id="stocks_config_save_btn" class="wizard-btn" style="padding:8px 24px; background:var(--accent-blue,#3498db); border:none; border-radius:8px; color:#fff; cursor:pointer; font-size:13px; font-weight:600;">💾 Guardar configuración</button>
+                                    <span id="stocks_config_status_msg" style="font-size:12px;"></span>
+                                </div>
+                            </form>
+                        </section>
+                    </div>
+                </div>
+
+                <!-- ========== SPORTS DOMAIN (Placeholder) ========== -->
+                <div id="sports_main" class="domain-screen">
+                    <div class="module-placeholder">
+                        <div class="module-icon">🏆</div>
+                        <h2>Módulo de Apuestas Deportivas</h2>
+                        <p>En Investigación — Análisis estadístico y value betting con modelos probabilísticos. ⚽🏀🎾</p>
+                        <div class="progress-bar"><div class="progress-fill sports"></div></div>
+                        <div class="placeholder-cards">
+                            <div class="placeholder-card"><span class="dev-badge">I+D</span><div class="metric-label">Bankroll</div><div class="metric-value">$—</div></div>
+                            <div class="placeholder-card"><span class="dev-badge">I+D</span><div class="metric-label">ROI</div><div class="metric-value">—%</div></div>
+                            <div class="placeholder-card"><span class="dev-badge">I+D</span><div class="metric-label">Bets Placed</div><div class="metric-value">0</div></div>
+                            <div class="placeholder-card"><span class="dev-badge">I+D</span><div class="metric-label">Hit Rate</div><div class="metric-value">—%</div></div>
+                        </div>
+                        <button class="wizard-btn" style="background:#484f58; max-width:300px; margin-top:16px" disabled>Configurar Fuentes (Fase de Investigación)</button>
+                    </div>
+                </div>
+
+                <!-- ========== CONFIG SCREEN ========== -->
+                <div id="config-screen" class="screen">
+                    <div style="max-width:680px;margin:0 auto;padding:24px 0;">
+                        <h2 style="margin-bottom:24px;display:flex;align-items:center;gap:10px;">⚙️ Configuración de APIs y Oracle</h2>
+
+                        <!-- APIs Section -->
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;margin-bottom:20px;">
+                            <h3 style="font-size:14px;color:var(--accent-cyan);margin-bottom:16px;">🔑 Claves de API</h3>
+
+                            <div class="form-group">
+                                <label style="display:flex;align-items:center;gap:8px;">Gemini API Key <span id="cfg-gemini-badge" class="badge" style="font-size:10px;">—</span></label>
+                                <input type="text" id="cfg-gemini-key" placeholder="AIza..." autocomplete="off">
+                            </div>
+
+                            <div class="form-group">
+                                <label style="display:flex;align-items:center;gap:8px;">Alpaca API Key <span id="cfg-alpaca-badge" class="badge" style="font-size:10px;">—</span></label>
+                                <input type="text" id="cfg-alpaca-key" placeholder="PK..." autocomplete="off">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Alpaca Secret Key</label>
+                                <input type="password" id="cfg-alpaca-secret" placeholder="••••••••" autocomplete="off">
+                            </div>
+                        </div>
+
+                        <!-- Oracle Section -->
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;margin-bottom:20px;">
+                            <h3 style="font-size:14px;color:var(--accent-cyan);margin-bottom:16px;">🧠 Parámetros del Oracle</h3>
+
+                            <div class="form-group" style="display:flex;align-items:center;gap:12px;">
+                                <label style="min-width:160px;">Sentiment Oracle</label>
+                                <label style="position:relative;display:inline-block;width:48px;height:26px;cursor:pointer;">
+                                    <input type="checkbox" id="cfg-sentiment-enabled" style="opacity:0;width:0;height:0;">
+                                    <span style="position:absolute;inset:0;background:#484f58;border-radius:26px;transition:0.3s;"></span>
+                                </label>
+                                <span id="cfg-sentiment-label" style="font-size:12px;color:var(--text-secondary);">OFF</span>
+                            </div>
+
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
+                                <div class="form-group">
+                                    <label>OBI Threshold (0.5 – 1.0)</label>
+                                    <input type="number" id="cfg-obi-threshold" min="0.5" max="1.0" step="0.05" placeholder="0.80">
+                                </div>
+                                <div class="form-group">
+                                    <label>Spread Multiplier (1.0 – 5.0)</label>
+                                    <input type="number" id="cfg-spread-mult" min="1.0" max="5.0" step="0.5" placeholder="3.0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Pro Cooldown (60 – 3600s)</label>
+                                    <input type="number" id="cfg-cooldown" min="60" max="3600" step="30" placeholder="300">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Save -->
+                        <div style="display:flex;align-items:center;gap:16px;">
+                            <button class="wizard-btn" style="max-width:260px;" onclick="saveConfig()">💾 Guardar configuración</button>
+                            <span id="cfg-save-status" style="font-size:13px;"></span>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
     </div>
 
     <script src="app.js"></script>

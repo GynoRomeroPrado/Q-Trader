@@ -8,6 +8,7 @@ fastapi>=0.115
 uvicorn[standard]>=0.34
 websockets>=13.0
 pyjwt[crypto]>=2.9
+pywebview>=5.0
 
 # === Databases ===
 duckdb>=1.2
@@ -18,7 +19,25 @@ python-dotenv>=1.0
 cryptography>=43.0
 vaderSentiment>=3.3.2
 aiohttp>=3.9.5
+feedparser>=6.0
+google-generativeai>=0.8.0
 
 # === Optional: C backend for indicators ===
 # TA-Lib (requires C library installed separately)
 # pip install TA-Lib after installing the C library
+
+# === Agentic Engine (LangGraph) ===
+langgraph>=0.1.18
+langchain-core>=0.2.0
+
+# === Performance Optimization ===
+winloop>=0.1.6; sys_platform == "win32"
+uvloop>=0.21.0; sys_platform != "win32"
+numba>=0.61
+orjson>=3.10
+
+# === Monitoring & Alerts ===
+psutil>=6.0
+python-telegram-bot>=21.0
+sdnotify>=0.3.2
+
